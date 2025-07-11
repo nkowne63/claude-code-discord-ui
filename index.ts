@@ -139,6 +139,7 @@ export async function createClaudeCodeBot(config: BotConfig) {
     }],
     ['claude-cancel', {
       execute: async (ctx: InteractionContext) => {
+        await ctx.deferReply();
         const cancelled = claudeHandlers.onClaudeCancel(ctx);
         await ctx.editReply({
           embeds: [{
@@ -189,6 +190,7 @@ export async function createClaudeCodeBot(config: BotConfig) {
     }],
     ['shell-list', {
       execute: async (ctx: InteractionContext) => {
+        await ctx.deferReply();
         const processes = shellHandlers.onShellList(ctx);
         const fields = Array.from(processes.entries()).map(([id, proc]) => ({
           name: `ID: ${id}`,
@@ -215,6 +217,7 @@ export async function createClaudeCodeBot(config: BotConfig) {
     }],
     ['status', {
       execute: async (ctx: InteractionContext) => {
+        await ctx.deferReply();
         const sessionStatus = claudeController ? "実行中" : "待機中";
         const gitStatusInfo = await gitHandlers.getStatus();
         const runningCount = shellHandlers.onShellList(ctx).size;
@@ -236,6 +239,7 @@ export async function createClaudeCodeBot(config: BotConfig) {
     }],
     ['settings', {
       execute: async (ctx: InteractionContext) => {
+        await ctx.deferReply();
         const action = ctx.getString('action', true)!;
         const value = ctx.getString('value');
         const result = utilsHandlers.onSettings(ctx, action, value || undefined);
@@ -265,6 +269,7 @@ export async function createClaudeCodeBot(config: BotConfig) {
     }],
     ['pwd', {
       execute: async (ctx: InteractionContext) => {
+        await ctx.deferReply();
         const result = utilsHandlers.getPwd();
         await ctx.editReply({
           embeds: [{
@@ -283,6 +288,7 @@ export async function createClaudeCodeBot(config: BotConfig) {
     }],
     ['shutdown', {
       execute: async (ctx: InteractionContext) => {
+        await ctx.deferReply();
         await ctx.editReply({
           embeds: [{
             color: 0xff0000,

@@ -44,6 +44,9 @@ export function createClaudeHandlers(deps: ClaudeHandlerDeps) {
   return {
     // deno-lint-ignore no-explicit-any
     async onClaude(ctx: any, prompt: string, sessionId?: string): Promise<ClaudeResponse> {
+      // インタラクションを延期（最初に実行）
+      await ctx.deferReply();
+      
       // 既存のセッションがあればキャンセル
       if (deps.claudeController) {
         deps.claudeController.abort();
@@ -96,6 +99,9 @@ export function createClaudeHandlers(deps: ClaudeHandlerDeps) {
       deps.setClaudeController(controller);
       
       const actualPrompt = prompt || "続きをお願いします。";
+      
+      // インタラクションを延期
+      await ctx.deferReply();
       
       // 初期メッセージを送信
       const embedData: { color: number; title: string; description: string; timestamp: boolean; fields?: Array<{ name: string; value: string; inline: boolean }> } = {
