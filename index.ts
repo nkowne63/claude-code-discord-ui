@@ -4,20 +4,19 @@ import {
   createDiscordBot, 
   type BotConfig,
   type InteractionContext,
-  type CommandHandlers
-} from "./discord.ts";
+  type CommandHandlers,
+  type ButtonHandlers,
+  type BotDependencies
+} from "./discord/index.ts";
 
-import { ShellManager } from "./shell.ts";
-import { 
-  getGitInfo, 
-  executeGitCommand,
-  getGitStatus 
-} from "./git.ts";
+import { ShellManager } from "./shell/index.ts";
+import { getGitInfo } from "./git/index.ts";
 
-import { createClaudeHandlers } from "./commands/claude.ts";
-import { createGitHandlers } from "./commands/git.ts";
-import { createShellHandlers } from "./commands/shell.ts";
-import { createUtilsHandlers } from "./commands/utils.ts";
+import { createClaudeHandlers, claudeCommands, cleanSessionId, createClaudeSender, type DiscordSender } from "./claude/index.ts";
+import { createGitHandlers, gitCommands } from "./git/index.ts";
+import { createShellHandlers, shellCommands } from "./shell/index.ts";
+import { createUtilsHandlers, utilsCommands } from "./util/index.ts";
+import { ClaudeMessage } from "./claude/types.ts";
 
 
 
@@ -52,8 +51,8 @@ function parseArgs(args: string[]): { category?: string; userId?: string } {
 }
 
 // Re-export for backward compatibility
-export { getGitInfo, executeGitCommand } from "./git.ts";
-export { sendToClaudeCode } from "./claude/client.ts";
+export { getGitInfo, executeGitCommand } from "./git/index.ts";
+export { sendToClaudeCode } from "./claude/index.ts";
 
 // Claude Code Discord Botを作成
 export async function createClaudeCodeBot(config: BotConfig) {
@@ -64,6 +63,7 @@ export async function createClaudeCodeBot(config: BotConfig) {
   
   // Claude Codeセッション管理
   let claudeController: AbortController | null = null;
+  // deno-lint-ignore no-unused-vars
   let claudeSessionId: string | undefined;
   
   // シェルマネージャーを作成
@@ -75,18 +75,22 @@ export async function createClaudeCodeBot(config: BotConfig) {
     mentionUserId: defaultMentionUserId || null,
   };
   
-  // Create Discord bot first to get sendClaudeMessages function
+  // Create Discord bot first
+  // deno-lint-ignore no-explicit-any prefer-const
   let bot: any;
   
-  // Create handlers with dependencies
+  // We'll create the Claude sender after bot initialization
+  let claudeSender: ((messages: ClaudeMessage[]) => Promise<void>) | null = null;
+  
+  // Create handlers with dependencies (sendClaudeMessages will be updated after bot creation)
   const claudeHandlers = createClaudeHandlers({
     workDir,
     claudeController,
     setClaudeController: (controller) => { claudeController = controller; },
     setClaudeSessionId: (sessionId) => { claudeSessionId = sessionId; },
     sendClaudeMessages: async (messages) => {
-      if (bot) {
-        await bot.sendClaudeMessages(messages);
+      if (claudeSender) {
+        await claudeSender(messages);
       }
     }
   });
@@ -119,69 +123,292 @@ export async function createClaudeCodeBot(config: BotConfig) {
   });
   
   // Command handlers implementation
-  const handlers: CommandHandlers = {
-    onClaude: claudeHandlers.onClaude,
-    onContinue: claudeHandlers.onContinue,
-    onClaudeCancel: claudeHandlers.onClaudeCancel,
-    onGit: gitHandlers.onGit,
-    onWorktree: gitHandlers.onWorktree,
-    onWorktreeList: gitHandlers.onWorktreeList,
-    onWorktreeRemove: gitHandlers.onWorktreeRemove,
-    onWorktreeBot: gitHandlers.onWorktreeBot,
-    onShell: shellHandlers.onShell,
-    onShellInput: shellHandlers.onShellInput,
-    onShellList: shellHandlers.onShellList,
-    onShellKill: shellHandlers.onShellKill,
-    
-    async onStatus(ctx: InteractionContext) {
-      const sessionStatus = claudeController ? "実行中" : "待機中";
-      const gitStatusInfo = await gitHandlers.getStatus();
-      const runningCount = shellHandlers.onShellList(ctx).size;
-      
-      return {
-        claudeStatus: sessionStatus,
-        gitStatus: gitStatusInfo.status,
-        gitBranch: gitStatusInfo.branch,
-        gitRemote: gitStatusInfo.remote,
-        runningProcessCount: runningCount,
-      };
-    },
-    
-    onSettings: utilsHandlers.onSettings,
-    
-    async onShutdown(ctx: InteractionContext) {
-      // すべてのプロセスを停止
-      await shellHandlers.killAllProcesses();
-      
-      // Claude Codeセッションをキャンセル
-      if (claudeController) {
-        claudeController.abort();
+  const handlers: CommandHandlers = new Map([
+    ['claude', {
+      execute: async (ctx: InteractionContext) => {
+        const prompt = ctx.getString('prompt', true)!;
+        const sessionId = ctx.getString('session_id');
+        await claudeHandlers.onClaude(ctx, prompt, sessionId || undefined);
+      }
+    }],
+    ['continue', {
+      execute: async (ctx: InteractionContext) => {
+        const prompt = ctx.getString('prompt');
+        await claudeHandlers.onContinue(ctx, prompt || undefined);
+      }
+    }],
+    ['claude-cancel', {
+      execute: async (ctx: InteractionContext) => {
+        const cancelled = claudeHandlers.onClaudeCancel(ctx);
+        await ctx.editReply({
+          embeds: [{
+            color: cancelled ? 0xff0000 : 0x808080,
+            title: cancelled ? 'キャンセル成功' : 'キャンセル失敗',
+            description: cancelled ? 'Claude Codeセッションをキャンセルしました。' : '実行中のClaude Codeセッションはありません。',
+            timestamp: true
+          }]
+        });
+      }
+    }],
+    ['git', {
+      execute: async (ctx: InteractionContext) => {
+        const command = ctx.getString('command', true)!;
+        await gitHandlers.onGit(ctx, command);
+      }
+    }],
+    ['worktree', {
+      execute: async (ctx: InteractionContext) => {
+        const branch = ctx.getString('branch', true)!;
+        const ref = ctx.getString('ref');
+        await gitHandlers.onWorktree(ctx, branch, ref || undefined);
+      }
+    }],
+    ['worktree-list', {
+      execute: async (ctx: InteractionContext) => {
+        await gitHandlers.onWorktreeList(ctx);
+      }
+    }],
+    ['worktree-remove', {
+      execute: async (ctx: InteractionContext) => {
+        const branch = ctx.getString('branch', true)!;
+        await gitHandlers.onWorktreeRemove(ctx, branch);
+      }
+    }],
+    ['shell', {
+      execute: async (ctx: InteractionContext) => {
+        const command = ctx.getString('command', true)!;
+        await shellHandlers.onShell(ctx, command);
+      }
+    }],
+    ['shell-input', {
+      execute: async (ctx: InteractionContext) => {
+        const processId = ctx.getInteger('process_id', true)!;
+        const input = ctx.getString('input', true)!;
+        await shellHandlers.onShellInput(ctx, processId, input);
+      }
+    }],
+    ['shell-list', {
+      execute: async (ctx: InteractionContext) => {
+        const processes = shellHandlers.onShellList(ctx);
+        const fields = Array.from(processes.entries()).map(([id, proc]) => ({
+          name: `ID: ${id}`,
+          value: `\`${proc.command}\`\n開始: ${proc.startTime.toLocaleTimeString()}`,
+          inline: false
+        }));
+        
+        await ctx.editReply({
+          embeds: [{
+            color: 0x00ffff,
+            title: '実行中のシェルプロセス',
+            description: processes.size === 0 ? '実行中のプロセスはありません。' : undefined,
+            fields: fields.slice(0, 25), // Discord limit
+            timestamp: true
+          }]
+        });
+      }
+    }],
+    ['shell-kill', {
+      execute: async (ctx: InteractionContext) => {
+        const processId = ctx.getInteger('process_id', true)!;
+        await shellHandlers.onShellKill(ctx, processId);
+      }
+    }],
+    ['status', {
+      execute: async (ctx: InteractionContext) => {
+        const sessionStatus = claudeController ? "実行中" : "待機中";
+        const gitStatusInfo = await gitHandlers.getStatus();
+        const runningCount = shellHandlers.onShellList(ctx).size;
+        
+        await ctx.editReply({
+          embeds: [{
+            color: 0x00ffff,
+            title: 'ステータス',
+            fields: [
+              { name: 'Claude Code', value: sessionStatus, inline: true },
+              { name: 'Git Branch', value: gitStatusInfo.branch, inline: true },
+              { name: 'シェルプロセス', value: `${runningCount}個実行中`, inline: true },
+              { name: 'メンション', value: botSettings.mentionEnabled ? `有効 (<@${botSettings.mentionUserId}>)` : '無効', inline: true }
+            ],
+            timestamp: true
+          }]
+        });
+      }
+    }],
+    ['settings', {
+      execute: async (ctx: InteractionContext) => {
+        const action = ctx.getString('action', true)!;
+        const value = ctx.getString('value');
+        const result = utilsHandlers.onSettings(ctx, action, value || undefined);
+        
+        if (!result.success) {
+          await ctx.editReply({
+            embeds: [{
+              color: 0xff0000,
+              title: '設定エラー',
+              description: result.message,
+              timestamp: true
+            }]
+          });
+        } else {
+          await ctx.editReply({
+            embeds: [{
+              color: 0x00ff00,
+              title: '設定',
+              fields: [
+                { name: 'メンション', value: result.mentionEnabled ? `有効 (<@${result.mentionUserId}>)` : '無効', inline: true }
+              ],
+              timestamp: true
+            }]
+          });
+        }
+      }
+    }],
+    ['pwd', {
+      execute: async (ctx: InteractionContext) => {
+        const result = utilsHandlers.getPwd();
+        await ctx.editReply({
+          embeds: [{
+            color: 0x0099ff,
+            title: '作業ディレクトリ',
+            fields: [
+              { name: 'パス', value: `\`${result.workDir}\``, inline: false },
+              { name: 'カテゴリ', value: result.categoryName, inline: true },
+              { name: 'リポジトリ', value: result.repoName, inline: true },
+              { name: 'ブランチ', value: result.branchName, inline: true }
+            ],
+            timestamp: true
+          }]
+        });
+      }
+    }],
+    ['shutdown', {
+      execute: async (ctx: InteractionContext) => {
+        await ctx.editReply({
+          embeds: [{
+            color: 0xff0000,
+            title: 'シャットダウン',
+            description: 'ボットを停止しています...',
+            timestamp: true
+          }]
+        });
+        
+        // すべてのプロセスを停止
+        shellHandlers.killAllProcesses();
+        
+        // Claude Codeセッションをキャンセル
+        if (claudeController) {
+          claudeController.abort();
+        }
+        
+        // 少し待ってから終了
+        setTimeout(() => {
+          Deno.exit(0);
+        }, 1000);
+      }
+    }]
+  ]);
+  
+  // Create dependencies object
+  const dependencies: BotDependencies = {
+    commands: [
+      ...claudeCommands,
+      ...gitCommands,
+      ...shellCommands,
+      ...utilsCommands,
+    ],
+    cleanSessionId
+  };
+
+  // Create Discord bot
+  // Button handlers
+  const buttonHandlers: ButtonHandlers = new Map();
+  
+  bot = await createDiscordBot(config, handlers, buttonHandlers, dependencies);
+  
+  // Create Discord sender for Claude messages
+  const discordSender: DiscordSender = {
+    async sendMessage(content) {
+      const channel = bot.getChannel();
+      if (channel) {
+        const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = await import("npm:discord.js@14.14.1");
+        
+        // Convert MessageContent to Discord format
+        // deno-lint-ignore no-explicit-any
+        const payload: any = {};
+        
+        if (content.content) payload.content = content.content;
+        
+        if (content.embeds) {
+          payload.embeds = content.embeds.map(e => {
+            const embed = new EmbedBuilder();
+            if (e.color !== undefined) embed.setColor(e.color);
+            if (e.title) embed.setTitle(e.title);
+            if (e.description) embed.setDescription(e.description);
+            if (e.fields) e.fields.forEach(f => embed.addFields(f));
+            if (e.footer) embed.setFooter(e.footer);
+            if (e.timestamp) embed.setTimestamp();
+            return embed;
+          });
+        }
+        
+        if (content.components) {
+          payload.components = content.components.map(row => {
+            // deno-lint-ignore no-explicit-any
+            const actionRow = new ActionRowBuilder<any>();
+            row.components.forEach(comp => {
+              const button = new ButtonBuilder()
+                .setCustomId(comp.customId)
+                .setLabel(comp.label);
+              
+              switch (comp.style) {
+                case 'primary': button.setStyle(ButtonStyle.Primary); break;
+                case 'secondary': button.setStyle(ButtonStyle.Secondary); break;
+                case 'success': button.setStyle(ButtonStyle.Success); break;
+                case 'danger': button.setStyle(ButtonStyle.Danger); break;
+                case 'link': button.setStyle(ButtonStyle.Link); break;
+              }
+              
+              actionRow.addComponents(button);
+            });
+            return actionRow;
+          });
+        }
+        
+        await channel.send(payload);
       }
     }
   };
   
-  // Create Discord bot
-  bot = await createDiscordBot(config, handlers);
+  // Create Claude sender function
+  claudeSender = createClaudeSender(discordSender);
   
   // Signal handlers
   const handleSignal = async (signal: string) => {
     console.log(`\n${signal}シグナルを受信しました。ボットを停止します...`);
     
     try {
-      await handlers.onShutdown({} as InteractionContext); // Signal handlerなのでctxは不要
+      // すべてのプロセスを停止
+      shellHandlers.killAllProcesses();
+      
+      // Claude Codeセッションをキャンセル
+      if (claudeController) {
+        claudeController.abort();
+      }
       
       // Send shutdown message
-      await bot.sendClaudeMessages([{
-        type: 'system',
-        content: '',
-        metadata: {
-          subtype: 'shutdown',
-          signal,
-          categoryName: actualCategoryName,
-          repoName,
-          branchName
-        }
-      }]);
+      if (claudeSender) {
+        await claudeSender([{
+          type: 'system',
+          content: '',
+          metadata: {
+            subtype: 'shutdown',
+            signal,
+            categoryName: actualCategoryName,
+            repoName,
+            branchName
+          }
+        }]);
+      }
       
       setTimeout(() => {
         bot.client.destroy();

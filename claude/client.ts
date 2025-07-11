@@ -17,6 +17,7 @@ export async function sendToClaudeCode(
   controller: AbortController,
   sessionId?: string,
   onChunk?: (text: string) => void,
+  // deno-lint-ignore no-explicit-any
   onStreamJson?: (json: any) => void,
   continueMode?: boolean
 ): Promise<{
@@ -81,7 +82,9 @@ export async function sendToClaudeCode(
         // JSONストリーム出力の場合は、onStreamJsonで処理するのでスキップ
         if (message.type === 'assistant' && message.message.content && !onStreamJson) {
           const textContent = message.message.content
+            // deno-lint-ignore no-explicit-any
             .filter((c: any) => c.type === 'text')
+            // deno-lint-ignore no-explicit-any
             .map((c: any) => c.text)
             .join('');
           
@@ -103,6 +106,7 @@ export async function sendToClaudeCode(
         sessionId: currentSessionId,
         aborted: controller.signal.aborted
       };
+    // deno-lint-ignore no-explicit-any
     } catch (error: any) {
       // プロセス終了コード143 (SIGTERM) やAbortErrorを適切にハンドル
       if (error.name === 'AbortError' || 
@@ -142,6 +146,7 @@ export async function sendToClaudeCode(
       duration: 'duration_ms' in lastMessage ? lastMessage.duration_ms : undefined,
       modelUsed
     };
+  // deno-lint-ignore no-explicit-any
   } catch (error: any) {
     // exit code 1エラーの場合、Sonnet 4でリトライ
     if (error.message && (error.message.includes('exit code 1') || error.message.includes('exited with code 1'))) {
@@ -165,6 +170,7 @@ export async function sendToClaudeCode(
           duration: 'duration_ms' in lastRetryMessage ? lastRetryMessage.duration_ms : undefined,
           modelUsed
         };
+      // deno-lint-ignore no-explicit-any
       } catch (retryError: any) {
         // Sonnet 4でも失敗した場合
         if (retryError.name === 'AbortError' || 

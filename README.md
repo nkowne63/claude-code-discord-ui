@@ -12,16 +12,16 @@
 cd /path/to/your/repo
 export DISCORD_TOKEN="your-token"
 export APPLICATION_ID="your-app-id"
-./claude-code-discord-bot.ts --category myproject --user-id 123456789012345678
+./index.ts --category myproject --user-id 123456789012345678
 
 # Gist等から直接実行
 cd /path/to/your/repo
 export DISCORD_TOKEN="your-token"
 export APPLICATION_ID="your-app-id"
-deno run --allow-all https://gist.githubusercontent.com/YOUR_USERNAME/YOUR_GIST_ID/raw/claude-code-discord-bot.ts --category myproject --user-id 123456789012345678
+deno run --allow-all https://gist.githubusercontent.com/YOUR_USERNAME/YOUR_GIST_ID/raw/index.ts --category myproject --user-id 123456789012345678
 
 # または一行で
-DISCORD_TOKEN="token" APPLICATION_ID="id" deno run --allow-all https://gist.githubusercontent.com/YOUR_USERNAME/YOUR_GIST_ID/raw/claude-code-discord-bot.ts --category myproject --user-id 123456789012345678
+DISCORD_TOKEN="token" APPLICATION_ID="id" deno run --allow-all https://gist.githubusercontent.com/YOUR_USERNAME/YOUR_GIST_ID/raw/index.ts --category myproject --user-id 123456789012345678
 ```
 
 ## 必要な環境変数

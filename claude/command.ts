@@ -1,6 +1,6 @@
-import type { InteractionContext, ClaudeResponse, ClaudeMessage } from "../discord.ts";
-import { sendToClaudeCode } from "../claude/client.ts";
-import { convertToClaudeMessages } from "../claude/message-converter.ts";
+import type { ClaudeResponse, ClaudeMessage } from "./types.ts";
+import { sendToClaudeCode } from "./client.ts";
+import { convertToClaudeMessages } from "./message-converter.ts";
 import { SlashCommandBuilder } from "npm:discord.js@14.14.1";
 
 // Discord command definitions
@@ -42,7 +42,8 @@ export function createClaudeHandlers(deps: ClaudeHandlerDeps) {
   const { workDir, sendClaudeMessages } = deps;
   
   return {
-    async onClaude(ctx: InteractionContext, prompt: string, sessionId?: string): Promise<ClaudeResponse> {
+    // deno-lint-ignore no-explicit-any
+    async onClaude(ctx: any, prompt: string, sessionId?: string): Promise<ClaudeResponse> {
       // 既存のセッションがあればキャンセル
       if (deps.claudeController) {
         deps.claudeController.abort();
@@ -84,7 +85,8 @@ export function createClaudeHandlers(deps: ClaudeHandlerDeps) {
       return result;
     },
     
-    async onContinue(ctx: InteractionContext, prompt?: string): Promise<ClaudeResponse> {
+    // deno-lint-ignore no-explicit-any
+    async onContinue(ctx: any, prompt?: string): Promise<ClaudeResponse> {
       // 既存のセッションがあればキャンセル
       if (deps.claudeController) {
         deps.claudeController.abort();
@@ -131,7 +133,8 @@ export function createClaudeHandlers(deps: ClaudeHandlerDeps) {
       return result;
     },
     
-    async onClaudeCancel(_ctx: InteractionContext): Promise<boolean> {
+    // deno-lint-ignore no-explicit-any
+    onClaudeCancel(_ctx: any): boolean {
       if (!deps.claudeController) {
         return false;
       }

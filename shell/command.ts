@@ -1,8 +1,6 @@
-import type { InteractionContext } from "../discord.ts";
-import { ShellManager } from "../shell.ts";
 import { SlashCommandBuilder } from "npm:discord.js@14.14.1";
+import type { ShellManager } from "./handler.ts";
 
-// Discord command definitions
 export const shellCommands = [
   new SlashCommandBuilder()
     .setName('shell')
@@ -49,37 +47,29 @@ export function createShellHandlers(deps: ShellHandlerDeps) {
   const { shellManager } = deps;
   
   return {
-    async onShell(ctx: InteractionContext, command: string, input?: string) {
+    // deno-lint-ignore no-explicit-any
+    async onShell(_ctx: any, command: string, input?: string) {
       const result = await shellManager.execute(command, input);
-      
-      // 初期メッセージ
-      await ctx.editReply({
-        embeds: [{
-          color: 0xffff00,
-          title: `🔧 実行中: ${command}`,
-          description: '```\n出力を待っています...\n```',
-          footer: { text: `プロセスID: ${result.processId} | 対話的コマンドの場合は /shell-input ${result.processId} で入力可能` },
-          timestamp: true
-        }]
-      });
-      
       return result;
     },
     
-    async onShellInput(_ctx: InteractionContext, processId: number, text: string) {
+    // deno-lint-ignore no-explicit-any
+    async onShellInput(_ctx: any, processId: number, text: string) {
       return await shellManager.sendInput(processId, text);
     },
     
-    onShellList(_ctx: InteractionContext) {
+    // deno-lint-ignore no-explicit-any
+    onShellList(_ctx: any) {
       return shellManager.getRunningProcesses();
     },
     
-    async onShellKill(_ctx: InteractionContext, processId: number) {
+    // deno-lint-ignore no-explicit-any
+    async onShellKill(_ctx: any, processId: number) {
       return await shellManager.killProcess(processId);
     },
     
-    async killAllProcesses() {
-      await shellManager.killAllProcesses();
+    killAllProcesses() {
+      shellManager.killAllProcesses();
     }
   };
 }

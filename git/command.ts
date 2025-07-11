@@ -1,8 +1,5 @@
-import type { InteractionContext } from "../discord.ts";
-import { executeGitCommand, createWorktree, listWorktrees, removeWorktree, getGitStatus } from "../git.ts";
 import { SlashCommandBuilder } from "npm:discord.js@14.14.1";
 
-// Discord command definitions
 export const gitCommands = [
   new SlashCommandBuilder()
     .setName('git')
@@ -52,24 +49,32 @@ export function createGitHandlers(deps: GitHandlerDeps) {
   const { workDir, actualCategoryName, discordToken, applicationId, botSettings } = deps;
   
   return {
-    async onGit(_ctx: InteractionContext, command: string): Promise<string> {
+    // deno-lint-ignore no-explicit-any
+    async onGit(_ctx: any, command: string): Promise<string> {
+      const { executeGitCommand } = await import("./handler.ts");
       return await executeGitCommand(workDir, `git ${command}`);
     },
     
-    async onWorktree(_ctx: InteractionContext, branch: string, ref?: string) {
+    // deno-lint-ignore no-explicit-any
+    async onWorktree(_ctx: any, branch: string, ref?: string) {
+      const { createWorktree } = await import("./handler.ts");
       return await createWorktree(workDir, branch, ref);
     },
     
-    async onWorktreeList(_ctx: InteractionContext) {
+    // deno-lint-ignore no-explicit-any
+    async onWorktreeList(_ctx: any) {
+      const { listWorktrees } = await import("./handler.ts");
       return await listWorktrees(workDir);
     },
     
-    async onWorktreeRemove(_ctx: InteractionContext, branch: string) {
+    // deno-lint-ignore no-explicit-any
+    async onWorktreeRemove(_ctx: any, branch: string) {
+      const { removeWorktree } = await import("./handler.ts");
       return await removeWorktree(workDir, branch);
     },
     
-    async onWorktreeBot(_ctx: InteractionContext, fullPath: string, _branch: string) {
-      // 新しいボットプロセスを起動
+    // deno-lint-ignore no-explicit-any
+    async onWorktreeBot(_ctx: any, fullPath: string, _branch: string) {
       const args = ["--category", actualCategoryName];
       if (botSettings.mentionUserId) {
         args.push("--user-id", botSettings.mentionUserId);
@@ -89,13 +94,13 @@ export function createGitHandlers(deps: GitHandlerDeps) {
       
       botProcess.spawn();
       
-      // プロセスの開始を確認（少し待機）
       await new Promise(resolve => setTimeout(resolve, 3000));
       
       console.log(`Worktreeボットプロセスを起動しました: ${fullPath}`);
     },
     
     async getStatus() {
+      const { getGitStatus } = await import("./handler.ts");
       const gitStatusInfo = await getGitStatus(workDir);
       return gitStatusInfo;
     }

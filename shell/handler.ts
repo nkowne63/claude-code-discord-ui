@@ -1,34 +1,4 @@
-#!/usr/bin/env -S deno run --allow-all
-
-/**
- * シェル実行機能
- * 
- * Discord Botで使用するシェルコマンド実行とプロセス管理機能を提供します。
- */
-
-export interface ShellProcess {
-  command: string;
-  startTime: Date;
-  child: Deno.ChildProcess;
-  stdin: WritableStreamDefaultWriter<Uint8Array>;
-}
-
-export interface ShellExecutionResult {
-  processId: number;
-  onOutput: (callback: (output: string) => void) => void;
-  onComplete: (callback: (code: number, output: string) => void) => void;
-  onError: (callback: (error: Error) => void) => void;
-}
-
-export interface ShellInputResult {
-  success: boolean;
-  process?: ShellProcess;
-}
-
-export interface ShellKillResult {
-  success: boolean;
-  process?: ShellProcess;
-}
+import type { ShellProcess, ShellExecutionResult, ShellInputResult, ShellKillResult } from "./types.ts";
 
 export class ShellManager {
   private runningProcesses = new Map<number, ShellProcess>();
@@ -39,9 +9,6 @@ export class ShellManager {
     this.workDir = workDir;
   }
 
-  /**
-   * シェルコマンドを実行し、対話的な入出力をサポート
-   */
   async execute(command: string, input?: string): Promise<ShellExecutionResult> {
     const processId = ++this.processIdCounter;
     let output = '';
@@ -49,7 +16,6 @@ export class ShellManager {
     const completeCallbacks: ((code: number, output: string) => void)[] = [];
     const errorCallbacks: ((error: Error) => void)[] = [];
 
-    // Denoコマンドを使用してシェルコマンドを実行（対話的モードに対応）
     const proc = new Deno.Command("bash", {
       args: ["-c", command],
       cwd: this.workDir,
@@ -61,7 +27,6 @@ export class ShellManager {
     const child = proc.spawn();
     const stdin = child.stdin.getWriter();
 
-    // プロセスを登録
     this.runningProcesses.set(processId, {
       command,
       startTime: new Date(),
@@ -69,15 +34,12 @@ export class ShellManager {
       stdin,
     });
 
-    // 初期入力があれば送信
     if (input) {
       await stdin.write(new TextEncoder().encode(input + '\n'));
     }
 
-    // 出力を読み取る
     const decoder = new TextDecoder();
 
-    // stdout読み取り
     (async () => {
       const reader = child.stdout.getReader();
       try {
@@ -93,7 +55,6 @@ export class ShellManager {
       }
     })();
 
-    // stderr読み取り
     (async () => {
       const reader = child.stderr.getReader();
       try {
@@ -109,7 +70,6 @@ export class ShellManager {
       }
     })();
 
-    // プロセス終了を待つ
     child.status.then((status) => {
       this.runningProcesses.delete(processId);
       completeCallbacks.forEach(cb => cb(status.code, output));
@@ -132,9 +92,6 @@ export class ShellManager {
     };
   }
 
-  /**
-   * 実行中のプロセスに入力を送信
-   */
   async sendInput(processId: number, text: string): Promise<ShellInputResult> {
     const process = this.runningProcesses.get(processId);
     if (!process || !process.stdin) {
@@ -150,16 +107,10 @@ export class ShellManager {
     }
   }
 
-  /**
-   * 実行中のプロセスリストを取得
-   */
   getRunningProcesses(): Map<number, ShellProcess> {
     return this.runningProcesses;
   }
 
-  /**
-   * プロセスを強制終了
-   */
   async killProcess(processId: number): Promise<ShellKillResult> {
     const process = this.runningProcesses.get(processId);
     if (!process) {
@@ -167,10 +118,8 @@ export class ShellManager {
     }
 
     try {
-      // プロセスを強制終了
       process.child.kill("SIGTERM");
 
-      // プロセスの終了を待つ（タイムアウト付き）
       const timeout = setTimeout(() => {
         process.child.kill("SIGKILL");
       }, 5000);
@@ -186,10 +135,7 @@ export class ShellManager {
     }
   }
 
-  /**
-   * すべてのプロセスを停止
-   */
-  async killAllProcesses(): Promise<void> {
+  killAllProcesses(): void {
     for (const [id, process] of this.runningProcesses) {
       try {
         process.child.kill("SIGTERM");

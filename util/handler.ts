@@ -1,37 +1,4 @@
-import type { InteractionContext } from "../discord.ts";
-import { SlashCommandBuilder } from "npm:discord.js@14.14.1";
-
-// Discord command definitions
-export const utilsCommands = [
-  new SlashCommandBuilder()
-    .setName('status')
-    .setDescription('現在のステータスを表示'),
-  
-  new SlashCommandBuilder()
-    .setName('pwd')
-    .setDescription('現在の作業ディレクトリを表示'),
-  
-  new SlashCommandBuilder()
-    .setName('settings')
-    .setDescription('ボットの設定を管理')
-    .addStringOption(option =>
-      option.setName('action')
-        .setDescription('実行するアクション')
-        .setRequired(true)
-        .addChoices(
-          { name: 'mention-on', value: 'mention-on' },
-          { name: 'mention-off', value: 'mention-off' },
-          { name: 'show', value: 'show' }
-        ))
-    .addStringOption(option =>
-      option.setName('value')
-        .setDescription('設定値（mention-onの場合はユーザーID）')
-        .setRequired(false)),
-  
-  new SlashCommandBuilder()
-    .setName('shutdown')
-    .setDescription('ボットをシャットダウン'),
-];
+import type { SettingsResult, PwdResult } from "./types.ts";
 
 export interface UtilsHandlerDeps {
   workDir: string;
@@ -49,7 +16,8 @@ export function createUtilsHandlers(deps: UtilsHandlerDeps) {
   const { workDir, repoName, branchName, actualCategoryName, botSettings, updateBotSettings } = deps;
   
   return {
-    onSettings(_ctx: InteractionContext, action: string, value?: string) {
+    // deno-lint-ignore no-explicit-any
+    onSettings(_ctx: any, action: string, value?: string): SettingsResult {
       switch (action) {
         case 'mention-on': {
           if (!value) {
@@ -59,7 +27,6 @@ export function createUtilsHandlers(deps: UtilsHandlerDeps) {
             };
           }
           
-          // ユーザーIDの形式をチェック（数字のみ、18-19桁）
           if (!/^\d{17,19}$/.test(value)) {
             return {
               success: false,
@@ -106,7 +73,7 @@ export function createUtilsHandlers(deps: UtilsHandlerDeps) {
       }
     },
     
-    getPwd() {
+    getPwd(): PwdResult {
       return {
         workDir,
         categoryName: actualCategoryName,
