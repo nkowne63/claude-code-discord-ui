@@ -44,27 +44,36 @@ export function createClaudeHandlers(deps: ClaudeHandlerDeps) {
   return {
     // deno-lint-ignore no-explicit-any
     async onClaude(ctx: any, prompt: string, sessionId?: string): Promise<ClaudeResponse> {
-      // インタラクションを延期（最初に実行）
-      await ctx.deferReply();
-      
-      // 既存のセッションがあればキャンセル
-      if (deps.claudeController) {
-        deps.claudeController.abort();
+      try {
+        console.log('Claude command started, deferring reply...');
+        // インタラクションを延期（最初に実行）
+        await ctx.deferReply();
+        console.log('Reply deferred successfully');
+        
+        // 既存のセッションがあればキャンセル
+        if (deps.claudeController) {
+          deps.claudeController.abort();
+        }
+        
+        const controller = new AbortController();
+        deps.setClaudeController(controller);
+        
+        console.log('About to send initial message...');
+        // 初期メッセージを送信
+        await ctx.editReply({
+          embeds: [{
+            color: 0xffff00,
+            title: 'Claude Code 実行中...',
+            description: '応答を待っています...',
+            fields: [{ name: 'プロンプト', value: `\`${prompt.substring(0, 1020)}\``, inline: false }],
+            timestamp: true
+          }]
+        });
+        console.log('Initial message sent successfully');
+      } catch (error) {
+        console.error('Error in onClaude before sendToClaudeCode:', error);
+        throw error;
       }
-      
-      const controller = new AbortController();
-      deps.setClaudeController(controller);
-      
-      // 初期メッセージを送信
-      await ctx.editReply({
-        embeds: [{
-          color: 0xffff00,
-          title: 'Claude Code 実行中...',
-          description: '応答を待っています...',
-          fields: [{ name: 'プロンプト', value: `\`${prompt.substring(0, 1020)}\``, inline: false }],
-          timestamp: true
-        }]
-      });
       
       const result = await sendToClaudeCode(
         workDir,
