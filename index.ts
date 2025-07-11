@@ -153,39 +153,377 @@ export async function createClaudeCodeBot(config: BotConfig) {
     }],
     ['git', {
       execute: async (ctx: InteractionContext) => {
+        await ctx.deferReply();
         const command = ctx.getString('command', true)!;
-        await gitHandlers.onGit(ctx, command);
+        try {
+          const result = await gitHandlers.onGit(ctx, command);
+          
+          // Check if the result contains an error
+          const isError = result.startsWith('実行エラー:') || result.startsWith('エラー:') || result.includes('fatal:') || result.includes('error:');
+          
+          await ctx.editReply({
+            embeds: [{
+              color: isError ? 0xff0000 : 0x00ff00,
+              title: isError ? 'Git Commandエラー' : 'Git Command実行結果',
+              description: `\`git ${command}\``,
+              fields: [{ name: isError ? 'エラー詳細' : '出力', value: `\`\`\`\n${result.substring(0, 4000)}\n\`\`\``, inline: false }],
+              timestamp: true
+            }]
+          });
+        } catch (error) {
+          await ctx.editReply({
+            embeds: [{
+              color: 0xff0000,
+              title: 'Git Commandエラー',
+              description: `\`git ${command}\``,
+              fields: [{ name: 'エラー', value: `\`\`\`\n${error instanceof Error ? error.message : String(error)}\n\`\`\``, inline: false }],
+              timestamp: true
+            }]
+          });
+        }
       }
     }],
     ['worktree', {
       execute: async (ctx: InteractionContext) => {
+        await ctx.deferReply();
         const branch = ctx.getString('branch', true)!;
         const ref = ctx.getString('ref');
-        await gitHandlers.onWorktree(ctx, branch, ref || undefined);
+        try {
+          const result = await gitHandlers.onWorktree(ctx, branch, ref || undefined);
+          
+          // Check if the result contains an error
+          const isError = result.result.startsWith('実行エラー:') || result.result.startsWith('エラー:') || result.result.includes('fatal:');
+          
+          if (!isError || result.isExisting === true) {
+            // Worktree created successfully, start bot process
+            await ctx.editReply({
+              embeds: [{
+                color: 0xffff00,
+                title: result.isExisting === true ? 'Worktree検出 - Bot起動中...' : 'Worktree作成成功 - Bot起動中...',
+                fields: [
+                  { name: 'ブランチ', value: branch, inline: true },
+                  { name: 'パス', value: result.fullPath, inline: false },
+                  { name: '結果', value: `\`\`\`\n${result.result}\n\`\`\``, inline: false },
+                  { name: 'ステータス', value: 'Botプロセスを起動しています...', inline: false }
+                ],
+                timestamp: true
+              }]
+            });
+            
+            // Start bot process for the worktree
+            try {
+              await gitHandlers.onWorktreeBot(ctx, result.fullPath, branch);
+              
+              // Update with success
+              await ctx.editReply({
+                embeds: [{
+                  color: 0x00ff00,
+                  title: result.isExisting === true ? 'Worktree Bot起動完了' : 'Worktree作成完了',
+                  fields: [
+                    { name: 'ブランチ', value: branch, inline: true },
+                    { name: 'パス', value: result.fullPath, inline: false },
+                    { name: '結果', value: `\`\`\`\n${result.result}\n\`\`\``, inline: false },
+                    { name: 'Botステータス', value: result.isExisting === true ? '✅ 既存のWorktreeでBotプロセスが起動しました' : '✅ 新しいBotプロセスが起動しました', inline: false }
+                  ],
+                  timestamp: true
+                }]
+              });
+            } catch (botError) {
+              // Bot start failed, but worktree was created
+              await ctx.editReply({
+                embeds: [{
+                  color: 0xff9900,
+                  title: result.isExisting === true ? 'Worktree検出 - Bot起動失敗' : 'Worktree作成成功 - Bot起動失敗',
+                  fields: [
+                    { name: 'ブランチ', value: branch, inline: true },
+                    { name: 'パス', value: result.fullPath, inline: false },
+                    { name: '結果', value: `\`\`\`\n${result.result}\n\`\`\``, inline: false },
+                    { name: 'Botエラー', value: `\`\`\`\n${botError instanceof Error ? botError.message : String(botError)}\n\`\`\``, inline: false }
+                  ],
+                  timestamp: true
+                }]
+              });
+            }
+          } else {
+            // Worktree creation failed
+            await ctx.editReply({
+              embeds: [{
+                color: 0xff0000,
+                title: 'Worktree作成エラー',
+                fields: [
+                  { name: 'ブランチ', value: branch, inline: true },
+                  { name: 'パス', value: result.fullPath, inline: false },
+                  { name: 'エラー詳細', value: `\`\`\`\n${result.result}\n\`\`\``, inline: false }
+                ],
+                timestamp: true
+              }]
+            });
+          }
+        } catch (error) {
+          await ctx.editReply({
+            embeds: [{
+              color: 0xff0000,
+              title: 'Worktree作成エラー',
+              fields: [
+                { name: 'ブランチ', value: branch, inline: true },
+                { name: 'エラー', value: `\`\`\`\n${error instanceof Error ? error.message : String(error)}\n\`\`\``, inline: false }
+              ],
+              timestamp: true
+            }]
+          });
+        }
       }
     }],
     ['worktree-list', {
       execute: async (ctx: InteractionContext) => {
-        await gitHandlers.onWorktreeList(ctx);
+        await ctx.deferReply();
+        try {
+          const result = await gitHandlers.onWorktreeList(ctx);
+          await ctx.editReply({
+            embeds: [{
+              color: 0x00ffff,
+              title: 'Git Worktrees',
+              fields: [{ name: '一覧', value: `\`\`\`\n${result.result}\n\`\`\``, inline: false }],
+              timestamp: true
+            }]
+          });
+        } catch (error) {
+          await ctx.editReply({
+            embeds: [{
+              color: 0xff0000,
+              title: 'Worktree一覧取得エラー',
+              fields: [{ name: 'エラー', value: `\`\`\`\n${error instanceof Error ? error.message : String(error)}\n\`\`\``, inline: false }],
+              timestamp: true
+            }]
+          });
+        }
       }
     }],
     ['worktree-remove', {
       execute: async (ctx: InteractionContext) => {
+        await ctx.deferReply();
         const branch = ctx.getString('branch', true)!;
-        await gitHandlers.onWorktreeRemove(ctx, branch);
+        try {
+          await gitHandlers.onWorktreeRemove(ctx, branch);
+          await ctx.editReply({
+            embeds: [{
+              color: 0x00ff00,
+              title: 'Worktree削除成功',
+              fields: [{ name: 'ブランチ', value: branch, inline: true }],
+              timestamp: true
+            }]
+          });
+        } catch (error) {
+          await ctx.editReply({
+            embeds: [{
+              color: 0xff0000,
+              title: 'Worktree削除エラー',
+              fields: [
+                { name: 'ブランチ', value: branch, inline: true },
+                { name: 'エラー', value: `\`\`\`\n${error instanceof Error ? error.message : String(error)}\n\`\`\``, inline: false }
+              ],
+              timestamp: true
+            }]
+          });
+        }
       }
     }],
     ['shell', {
       execute: async (ctx: InteractionContext) => {
+        await ctx.deferReply();
         const command = ctx.getString('command', true)!;
-        await shellHandlers.onShell(ctx, command);
+        const input = ctx.getString('input');
+        try {
+          const executionResult = await shellHandlers.onShell(ctx, command, input || undefined);
+          
+          let isCompleted = false;
+          
+          // Handle completion asynchronously
+          executionResult.onComplete(async (exitCode, output) => {
+            if (isCompleted) return;
+            isCompleted = true;
+            
+            const truncatedOutput = output.substring(0, 4000);
+            await ctx.editReply({
+              embeds: [{
+                color: exitCode === 0 ? 0x00ff00 : 0xff0000,
+                title: exitCode === 0 ? 'Shell Command完了' : 'Shell Commandエラー',
+                description: `\`${command}\``,
+                fields: [
+                  { name: 'プロセスID', value: executionResult.processId.toString(), inline: true },
+                  { name: '終了コード', value: exitCode.toString(), inline: true },
+                  { name: '出力', value: `\`\`\`\n${truncatedOutput || '(出力なし)'}\n\`\`\``, inline: false }
+                ],
+                timestamp: true
+              }]
+            });
+          });
+          
+          executionResult.onError(async (error) => {
+            if (isCompleted) return;
+            isCompleted = true;
+            
+            await ctx.editReply({
+              embeds: [{
+                color: 0xff0000,
+                title: 'Shell Commandエラー',
+                description: `\`${command}\``,
+                fields: [
+                  { name: 'プロセスID', value: executionResult.processId.toString(), inline: true },
+                  { name: 'エラー', value: `\`\`\`\n${error.message}\n\`\`\``, inline: false }
+                ],
+                timestamp: true
+              }]
+            });
+          });
+          
+          // Show initial running status and wait a bit to see if it completes quickly
+          await ctx.editReply({
+            embeds: [{
+              color: 0xffff00,
+              title: 'Shell Command実行開始',
+              description: `\`${command}\``,
+              fields: [
+                { name: 'プロセスID', value: executionResult.processId.toString(), inline: true },
+                { name: 'ステータス', value: '実行中...', inline: true }
+              ],
+              timestamp: true
+            }]
+          });
+          
+          // Wait a short time for quick commands
+          setTimeout(async () => {
+            if (!isCompleted) {
+              // Still running after timeout, show long-running status
+              try {
+                await ctx.editReply({
+                  embeds: [{
+                    color: 0x0099ff,
+                    title: 'Shell Command実行中',
+                    description: `\`${command}\``,
+                    fields: [
+                      { name: 'プロセスID', value: executionResult.processId.toString(), inline: true },
+                      { name: 'ステータス', value: '長時間実行中... (完了時に更新されます)', inline: false }
+                    ],
+                    timestamp: true
+                  }]
+                });
+              } catch {
+                // Ignore errors if interaction is no longer valid
+              }
+            }
+          }, 2000);
+        } catch (error) {
+          await ctx.editReply({
+            embeds: [{
+              color: 0xff0000,
+              title: 'Shell Commandエラー',
+              description: `\`${command}\``,
+              fields: [{ name: 'エラー', value: `\`\`\`\n${error instanceof Error ? error.message : String(error)}\n\`\`\``, inline: false }],
+              timestamp: true
+            }]
+          });
+        }
       }
     }],
     ['shell-input', {
       execute: async (ctx: InteractionContext) => {
-        const processId = ctx.getInteger('process_id', true)!;
-        const input = ctx.getString('input', true)!;
-        await shellHandlers.onShellInput(ctx, processId, input);
+        await ctx.deferReply();
+        const processId = ctx.getInteger('id', true)!;
+        const input = ctx.getString('text', true)!;
+        try {
+          const result = await shellHandlers.onShellInput(ctx, processId, input);
+          
+          if (result.success) {
+            await ctx.editReply({
+              embeds: [{
+                color: 0x00ff00,
+                title: '入力送信成功',
+                fields: [
+                  { name: 'プロセスID', value: processId.toString(), inline: true },
+                  { name: '送信データ', value: `\`${input}\``, inline: false },
+                  { name: '結果', value: '✅ 入力を送信しました。新しい出力があれば下記に表示されます。', inline: false }
+                ],
+                timestamp: true
+              }]
+            });
+            
+            // Wait a moment for output to be generated, then show new output
+            // Use longer timeout for Python3 due to buffering behavior
+            const waitTime = input.toLowerCase().includes('python') ? 2000 : 1000;
+            setTimeout(async () => {
+              const newOutput = shellHandlers.getNewOutput(processId);
+              if (newOutput.trim()) {
+                const truncatedOutput = newOutput.substring(0, 4000);
+                try {
+                  await ctx.followUp({
+                    embeds: [{
+                      color: 0x0099ff,
+                      title: '新しい出力',
+                      fields: [
+                        { name: 'プロセスID', value: processId.toString(), inline: true },
+                        { name: '入力', value: `\`${input}\``, inline: true },
+                        { name: '出力', value: `\`\`\`\n${truncatedOutput}\n\`\`\``, inline: false }
+                      ],
+                      timestamp: true
+                    }]
+                  });
+                } catch (error) {
+                  console.error('Failed to send followUp output:', error);
+                }
+              } else {
+                // If no output yet, check again after additional time for Python
+                setTimeout(async () => {
+                  const lateOutput = shellHandlers.getNewOutput(processId);
+                  if (lateOutput.trim()) {
+                    const truncatedOutput = lateOutput.substring(0, 4000);
+                    try {
+                      await ctx.followUp({
+                        embeds: [{
+                          color: 0x0099ff,
+                          title: '新しい出力 (遅延)',
+                          fields: [
+                            { name: 'プロセスID', value: processId.toString(), inline: true },
+                            { name: '入力', value: `\`${input}\``, inline: true },
+                            { name: '出力', value: `\`\`\`\n${truncatedOutput}\n\`\`\``, inline: false }
+                          ],
+                          timestamp: true
+                        }]
+                      });
+                    } catch (error) {
+                      console.error('Failed to send delayed followUp output:', error);
+                    }
+                  }
+                }, 2000);
+              }
+            }, waitTime);
+          } else {
+            await ctx.editReply({
+              embeds: [{
+                color: 0xff0000,
+                title: '入力送信失敗',
+                fields: [
+                  { name: 'プロセスID', value: processId.toString(), inline: true },
+                  { name: '送信データ', value: `\`${input}\``, inline: false },
+                  { name: '結果', value: '❌ プロセスが見つかりませんでした。プロセスが終了している可能性があります。', inline: false }
+                ],
+                timestamp: true
+              }]
+            });
+          }
+        } catch (error) {
+          await ctx.editReply({
+            embeds: [{
+              color: 0xff0000,
+              title: '入力送信エラー',
+              fields: [
+                { name: 'プロセスID', value: processId.toString(), inline: true },
+                { name: 'エラー', value: `\`\`\`\n${error instanceof Error ? error.message : String(error)}\n\`\`\``, inline: false }
+              ],
+              timestamp: true
+            }]
+          });
+        }
       }
     }],
     ['shell-list', {
@@ -211,8 +549,34 @@ export async function createClaudeCodeBot(config: BotConfig) {
     }],
     ['shell-kill', {
       execute: async (ctx: InteractionContext) => {
-        const processId = ctx.getInteger('process_id', true)!;
-        await shellHandlers.onShellKill(ctx, processId);
+        await ctx.deferReply();
+        const processId = ctx.getInteger('id', true)!;
+        try {
+          const result = await shellHandlers.onShellKill(ctx, processId);
+          await ctx.editReply({
+            embeds: [{
+              color: result.success ? 0x00ff00 : 0xff0000,
+              title: result.success ? 'プロセス停止成功' : 'プロセス停止失敗',
+              fields: [
+                { name: 'プロセスID', value: processId.toString(), inline: true },
+                { name: '結果', value: result.success ? 'プロセスを停止しました' : 'プロセスが見つかりませんでした', inline: false }
+              ],
+              timestamp: true
+            }]
+          });
+        } catch (error) {
+          await ctx.editReply({
+            embeds: [{
+              color: 0xff0000,
+              title: 'プロセス停止エラー',
+              fields: [
+                { name: 'プロセスID', value: processId.toString(), inline: true },
+                { name: 'エラー', value: `\`\`\`\n${error instanceof Error ? error.message : String(error)}\n\`\`\``, inline: false }
+              ],
+              timestamp: true
+            }]
+          });
+        }
       }
     }],
     ['status', {

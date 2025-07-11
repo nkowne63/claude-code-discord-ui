@@ -159,15 +159,11 @@ export async function createDiscordBot(
   function createInteractionContext(interaction: CommandInteraction | ButtonInteraction): InteractionContext {
     return {
       async deferReply(): Promise<void> {
-        console.log('Attempting to defer reply, interaction.deferred =', interaction.deferred, 'interaction.replied =', interaction.replied);
         await interaction.deferReply();
-        console.log('Successfully deferred reply');
       },
       
       async editReply(content: MessageContent): Promise<void> {
-        console.log('Attempting to edit reply, interaction.deferred =', interaction.deferred, 'interaction.replied =', interaction.replied);
         await interaction.editReply(convertMessageContent(content));
-        console.log('Successfully edited reply');
       },
       
       async followUp(content: MessageContent & { ephemeral?: boolean }): Promise<void> {

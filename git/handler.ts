@@ -53,22 +53,63 @@ export async function executeGitCommand(workDir: string, command: string): Promi
 export async function createWorktree(workDir: string, branch: string, ref?: string): Promise<WorktreeResult> {
   const actualRef = ref || branch;
   let baseWorkDir = workDir;
-  let worktreePath = `.git/worktrees/${branch}`;
   
   try {
     const gitFile = await Deno.readTextFile(`${workDir}/.git`);
     if (gitFile.includes('gitdir:')) {
       baseWorkDir = workDir.replace(/\/\.git\/worktrees\/[^\/]+$/, '');
-      worktreePath = `.git/worktrees/${branch}`;
     }
   } catch {
     // .gitディレクトリの場合は通常のリポジトリ
   }
   
-  const fullWorktreePath = `${baseWorkDir}/${worktreePath}`;
-  const result = await executeGitCommand(baseWorkDir, `git worktree add ${worktreePath} -b ${branch} ${actualRef}`);
+  // Check if worktree already exists for this branch
+  const existingWorktrees = await executeGitCommand(baseWorkDir, "git worktree list");
+  if (!existingWorktrees.startsWith('実行エラー:') && !existingWorktrees.startsWith('エラー:')) {
+    const worktreeLines = existingWorktrees.split('\n').filter(line => line.trim());
+    for (const line of worktreeLines) {
+      // Check if this branch is already used by a worktree
+      if (line.includes(`[${branch}]`) || line.endsWith(` ${branch}`)) {
+        const existingPath = line.split(/\s+/)[0];
+        return { 
+          result: `既存のworktreeが見つかりました。パス: ${existingPath}`, 
+          fullPath: existingPath, 
+          baseDir: baseWorkDir,
+          isExisting: true
+        };
+      }
+    }
+  }
   
-  return { result, fullPath: fullWorktreePath, baseDir: baseWorkDir };
+  // The actual worktree directory path (not the .git/worktrees path)
+  const worktreeDir = `${baseWorkDir}/../${branch}`;
+  
+  // Check if directory already exists
+  try {
+    await Deno.stat(worktreeDir);
+    return { 
+      result: `エラー: ディレクトリ '${worktreeDir}' は既に存在します。`, 
+      fullPath: worktreeDir, 
+      baseDir: baseWorkDir 
+    };
+  } catch {
+    // Directory doesn't exist, which is good
+  }
+  
+  // Check if branch already exists
+  const branchCheckResult = await executeGitCommand(baseWorkDir, `git show-ref --verify --quiet refs/heads/${branch}`);
+  const branchExists = !branchCheckResult.startsWith('実行エラー:') && !branchCheckResult.startsWith('エラー:');
+  
+  let result: string;
+  if (branchExists) {
+    // Branch exists, use it without creating a new one
+    result = await executeGitCommand(baseWorkDir, `git worktree add ${worktreeDir} ${branch}`);
+  } else {
+    // Branch doesn't exist, create a new one
+    result = await executeGitCommand(baseWorkDir, `git worktree add ${worktreeDir} -b ${branch} ${actualRef}`);
+  }
+  
+  return { result, fullPath: worktreeDir, baseDir: baseWorkDir };
 }
 
 export async function listWorktrees(workDir: string): Promise<WorktreeListResult> {
@@ -89,22 +130,44 @@ export async function listWorktrees(workDir: string): Promise<WorktreeListResult
 
 export async function removeWorktree(workDir: string, branch: string): Promise<WorktreeResult> {
   let baseWorkDir = workDir;
-  let worktreePath = `.git/worktrees/${branch}`;
   
   try {
     const gitFile = await Deno.readTextFile(`${workDir}/.git`);
     if (gitFile.includes('gitdir:')) {
       baseWorkDir = workDir.replace(/\/\.git\/worktrees\/[^\/]+$/, '');
-      worktreePath = `.git/worktrees/${branch}`;
     }
   } catch {
     // .gitディレクトリの場合は通常のリポジトリ
   }
   
-  const fullWorktreePath = `${baseWorkDir}/${worktreePath}`;
-  const result = await executeGitCommand(baseWorkDir, `git worktree remove ${worktreePath}`);
+  // First, find the actual worktree path by listing existing worktrees
+  const worktreeList = await executeGitCommand(baseWorkDir, "git worktree list");
+  if (worktreeList.startsWith('実行エラー:') || worktreeList.startsWith('エラー:')) {
+    return { result: worktreeList, fullPath: '', baseDir: baseWorkDir };
+  }
   
-  return { result, fullPath: fullWorktreePath, baseDir: baseWorkDir };
+  let worktreePathToRemove = '';
+  const worktreeLines = worktreeList.split('\n').filter(line => line.trim());
+  for (const line of worktreeLines) {
+    // Check if this line contains the branch we want to remove
+    if (line.includes(`[${branch}]`) || line.endsWith(` ${branch}`)) {
+      worktreePathToRemove = line.split(/\s+/)[0];
+      break;
+    }
+  }
+  
+  if (!worktreePathToRemove) {
+    return { 
+      result: `エラー: ブランチ '${branch}' のworktreeが見つかりません。`, 
+      fullPath: '', 
+      baseDir: baseWorkDir 
+    };
+  }
+  
+  // Remove the worktree using the actual path
+  const result = await executeGitCommand(baseWorkDir, `git worktree remove ${worktreePathToRemove} --force`);
+  
+  return { result, fullPath: worktreePathToRemove, baseDir: baseWorkDir };
 }
 
 export async function getGitStatus(workDir: string): Promise<GitStatus> {

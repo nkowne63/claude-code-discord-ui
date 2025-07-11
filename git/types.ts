@@ -7,6 +7,7 @@ export interface WorktreeResult {
   result: string;
   fullPath: string;
   baseDir: string;
+  isExisting?: boolean;
 }
 
 export interface WorktreeListResult {

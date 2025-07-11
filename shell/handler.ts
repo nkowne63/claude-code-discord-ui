@@ -9,15 +9,24 @@ export class ShellManager {
     this.workDir = workDir;
   }
 
-  async execute(command: string, input?: string): Promise<ShellExecutionResult> {
+  // deno-lint-ignore no-explicit-any
+  async execute(command: string, input?: string, discordContext?: any): Promise<ShellExecutionResult> {
     const processId = ++this.processIdCounter;
     let output = '';
     const outputCallbacks: ((data: string) => void)[] = [];
     const completeCallbacks: ((code: number, output: string) => void)[] = [];
     const errorCallbacks: ((error: Error) => void)[] = [];
 
+    // Handle Python3 buffering issues by adding -u flag for unbuffered output
+    let modifiedCommand = command;
+    if (command.trim().startsWith('python3') && !command.includes('-u')) {
+      modifiedCommand = command.replace(/^python3\s*/, 'python3 -u ');
+    } else if (command.trim() === 'python3') {
+      modifiedCommand = 'python3 -u';
+    }
+
     const proc = new Deno.Command("bash", {
-      args: ["-c", command],
+      args: ["-c", modifiedCommand],
       cwd: this.workDir,
       stdin: "piped",
       stdout: "piped",
@@ -32,6 +41,8 @@ export class ShellManager {
       startTime: new Date(),
       child,
       stdin,
+      discordContext,
+      outputSinceLastUpdate: '',
     });
 
     if (input) {
@@ -48,6 +59,11 @@ export class ShellManager {
           if (done) break;
           const text = decoder.decode(value);
           output += text;
+          // Track new output since last update
+          const process = this.runningProcesses.get(processId);
+          if (process) {
+            process.outputSinceLastUpdate += text;
+          }
           outputCallbacks.forEach(cb => cb(text));
         }
       } catch (error) {
@@ -63,6 +79,11 @@ export class ShellManager {
           if (done) break;
           const text = decoder.decode(value);
           output += text;
+          // Track new output since last update
+          const process = this.runningProcesses.get(processId);
+          if (process) {
+            process.outputSinceLastUpdate += text;
+          }
           outputCallbacks.forEach(cb => cb(text));
         }
       } catch (error) {
@@ -109,6 +130,17 @@ export class ShellManager {
 
   getRunningProcesses(): Map<number, ShellProcess> {
     return this.runningProcesses;
+  }
+
+  getNewOutput(processId: number): string {
+    const process = this.runningProcesses.get(processId);
+    if (!process) {
+      return '';
+    }
+    
+    const newOutput = process.outputSinceLastUpdate || '';
+    process.outputSinceLastUpdate = ''; // Clear after getting
+    return newOutput;
   }
 
   async killProcess(processId: number): Promise<ShellKillResult> {

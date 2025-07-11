@@ -48,8 +48,8 @@ export function createShellHandlers(deps: ShellHandlerDeps) {
   
   return {
     // deno-lint-ignore no-explicit-any
-    async onShell(_ctx: any, command: string, input?: string) {
-      const result = await shellManager.execute(command, input);
+    async onShell(ctx: any, command: string, input?: string) {
+      const result = await shellManager.execute(command, input, ctx);
       return result;
     },
     
@@ -70,6 +70,10 @@ export function createShellHandlers(deps: ShellHandlerDeps) {
     
     killAllProcesses() {
       shellManager.killAllProcesses();
+    },
+
+    getNewOutput(processId: number): string {
+      return shellManager.getNewOutput(processId);
     }
   };
 }

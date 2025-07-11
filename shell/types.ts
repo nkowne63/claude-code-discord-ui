@@ -3,6 +3,9 @@ export interface ShellProcess {
   startTime: Date;
   child: Deno.ChildProcess;
   stdin?: WritableStreamDefaultWriter;
+  // deno-lint-ignore no-explicit-any
+  discordContext?: any;
+  outputSinceLastUpdate?: string;
 }
 
 export interface ShellExecutionResult {
